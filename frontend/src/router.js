@@ -42,6 +42,12 @@ const routes = [
     component: () => import('@/pages/Campaigns.vue'),
   },
   {
+    path: '/campaigns/:campaignId',
+    name: 'Campaign',
+    component: () => import('@/pages/CampaignDetail.vue'),
+    props: true,
+  },
+  {
     alias: '/leads',
     path: '/leads/view/:viewType?',
     name: 'Leads',

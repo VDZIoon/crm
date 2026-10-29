@@ -1,43 +1,51 @@
 <!--
-  IOON — Página de Campañas para Frappe CRM
-  Ubicación sugerida en el fork: frontend/src/pages/Campaigns.vue
+  IOON — Listado de campañas para Frappe CRM
+  Ubicación en el fork: frontend/src/pages/Campaigns.vue
 
-  Lista los registros de CRM Campaign. Al hacer clic en una campaña,
-  abre su formulario en el escritorio (crear y editar campañas sigue
-  haciéndose ahí). El conteo de leads usa el campo custom_campana.
+  Muestra cada campaña con su cantidad de leads y de oportunidades.
+  Al hacer clic en una campaña se abre su detalle dentro del CRM.
 -->
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { createListResource, createResource, ListView, Badge, Button } from 'frappe-ui'
 
 const CAMPO_CAMPANA = 'custom_campana'
+const router = useRouter()
 
 const campanas = createListResource({
   doctype: 'CRM Campaign',
   fields: ['name', 'segmento', 'estado', 'fecha_inicio', 'fecha_fin', 'responsable'],
-  orderBy: 'fecha_inicio desc',
+  orderBy: 'creation desc',
   pageLength: 200,
   auto: true,
 })
 
-// Cantidad de leads por campaña
-const conteo = createResource({
-  url: 'frappe.client.get_list',
-  params: {
-    doctype: 'CRM Lead',
-    fields: [CAMPO_CAMPANA, 'count(name) as total'],
-    filters: [[CAMPO_CAMPANA, 'is', 'set']],
-    group_by: CAMPO_CAMPANA,
-    limit_page_length: 0,
-  },
-  auto: true,
-})
+function conteoPor(doctype) {
+  return createResource({
+    url: 'frappe.client.get_list',
+    params: {
+      doctype,
+      fields: [CAMPO_CAMPANA, 'count(name) as total'],
+      filters: [[CAMPO_CAMPANA, 'is', 'set']],
+      group_by: CAMPO_CAMPANA,
+      limit_page_length: 0,
+    },
+    auto: true,
+  })
+}
 
-const totales = computed(() => {
+const conteoLeads = conteoPor('CRM Lead')
+const conteoDeals = conteoPor('CRM Deal')
+
+function aMapa(recurso) {
   const mapa = {}
-  for (const fila of conteo.data || []) mapa[fila[CAMPO_CAMPANA]] = fila.total
+  for (const fila of recurso.data || []) mapa[fila[CAMPO_CAMPANA]] = fila.total
   return mapa
-})
+}
+
+const totalesLeads = computed(() => aMapa(conteoLeads))
+const totalesDeals = computed(() => aMapa(conteoDeals))
 
 const columnas = [
   { label: 'Campaña', key: 'name', width: '16rem' },
@@ -46,16 +54,21 @@ const columnas = [
   { label: 'Inicio', key: 'fecha_inicio', width: '8rem' },
   { label: 'Fin', key: 'fecha_fin', width: '8rem' },
   { label: 'Leads', key: 'leads', width: '6rem' },
+  { label: 'Oportunidades', key: 'deals', width: '8rem' },
 ]
 
 const filas = computed(() =>
-  (campanas.data || []).map((c) => ({ ...c, leads: totales.value[c.name] || 0 })),
+  (campanas.data || []).map((c) => ({
+    ...c,
+    leads: totalesLeads.value[c.name] || 0,
+    deals: totalesDeals.value[c.name] || 0,
+  })),
 )
 
 const temaEstado = { Activa: 'green', Planificada: 'gray', Cerrada: 'red' }
 
 function abrirCampana(fila) {
-  window.open(`/desk/crm-campaign/${encodeURIComponent(fila.name)}`, '_blank')
+  router.push({ name: 'Campaign', params: { campaignId: fila.name } })
 }
 
 function nuevaCampana() {
@@ -78,7 +91,7 @@ function nuevaCampana() {
         row-key="name"
         :options="{ selectable: false, showTooltip: false, onRowClick: abrirCampana }"
       >
-        <template #cell="{ column, row, item }">
+        <template #cell="{ column, item }">
           <Badge
             v-if="column.key === 'estado' && item"
             :label="item"
