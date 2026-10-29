@@ -20,7 +20,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
-const CAMPO_CAMPANA = 'custom_campana'
+const CAMPO_CAMPANA = 'custom_campaña'
 
 // Columnas de la tabla de oportunidades.
 // editable: tipo de EditableCell; omítelo para dejar la columna de solo lectura.

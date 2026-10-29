@@ -10,7 +10,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { createListResource, createResource, ListView, Badge, Button } from 'frappe-ui'
 
-const CAMPO_CAMPANA = 'custom_campana'
+const CAMPO_CAMPANA = 'custom_campaña'
 const router = useRouter()
 
 const campanas = createListResource({
@@ -21,17 +21,20 @@ const campanas = createListResource({
   auto: true,
 })
 
+// Trae solo el campo de campaña de cada registro y cuenta en el navegador.
+// Evita funciones de agregación (count/group by), que algunas versiones
+// de Frappe rechazan en frappe.client.get_list.
 function conteoPor(doctype) {
   return createResource({
     url: 'frappe.client.get_list',
     params: {
       doctype,
-      fields: [CAMPO_CAMPANA, 'count(name) as total'],
+      fields: [CAMPO_CAMPANA],
       filters: [[CAMPO_CAMPANA, 'is', 'set']],
-      group_by: CAMPO_CAMPANA,
       limit_page_length: 0,
     },
     auto: true,
+    onError: (e) => console.error(`Conteo de campañas en ${doctype}:`, e),
   })
 }
 
@@ -40,7 +43,10 @@ const conteoDeals = conteoPor('CRM Deal')
 
 function aMapa(recurso) {
   const mapa = {}
-  for (const fila of recurso.data || []) mapa[fila[CAMPO_CAMPANA]] = fila.total
+  for (const fila of recurso.data || []) {
+    const campana = fila[CAMPO_CAMPANA]
+    if (campana) mapa[campana] = (mapa[campana] || 0) + 1
+  }
   return mapa
 }
 
