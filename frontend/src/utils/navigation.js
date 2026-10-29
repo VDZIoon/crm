@@ -17,6 +17,7 @@ export const navigationItems = [
   },
   { label: 'Leads', icon: LeadsIcon, route: 'Leads' },
   { label: 'Deals', icon: DealsIcon, route: 'Deals' },
+  { label: 'Campañas', icon: LeadsIcon, route: 'Campaigns' },
   { label: 'Contacts', icon: ContactsIcon, route: 'Contacts' },
   { label: 'Organizations', icon: OrganizationsIcon, route: 'Organizations' },
   { label: 'Notes', icon: NoteIcon, route: 'Notes' },
