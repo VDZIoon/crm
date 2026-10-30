@@ -94,8 +94,26 @@
           </div>
         </template>
         <template #default="{ label }">
+          <!-- IOON: celdas editables. El clic no abre el lead. -->
           <div
-            v-if="
+            v-if="esEditable(column)"
+            class="w-full"
+            @click.stop.prevent
+            @mousedown.stop
+          >
+            <EditableCell
+              doctype="CRM Lead"
+              :name="row.name"
+              :fieldname="column.key"
+              :value="row[column.key] ?? ''"
+              :type="tipoEditable(column)"
+              :options="opcionesEditables(column)"
+              :display="textoEditable(row[column.key], column)"
+              @updated="({ value }) => (row[column.key] = value)"
+            />
+          </div>
+          <div
+            v-else-if="
               [
                 'modified',
                 'creation',
@@ -248,6 +266,7 @@ import RatingInput from '@/components/Controls/RatingInput.vue'
 import MultipleAvatar from '@/components/MultipleAvatar.vue'
 import ListBulkActions from '@/components/ListBulkActions.vue'
 import ListRows from '@/components/ListViews/ListRows.vue'
+import EditableCell from '@/components/ListViews/EditableCell.vue'
 import { isTranslatable, formatDuration } from '@/utils'
 import {
   Avatar,
@@ -259,6 +278,7 @@ import {
   ListFooter,
   Dropdown,
   Tooltip,
+  createListResource,
 } from 'frappe-ui'
 import { sessionStore } from '@/stores/session'
 import { ref, computed, watch } from 'vue'
@@ -323,6 +343,57 @@ watch(pageLengthCount, (val, old_value) => {
 })
 
 const listBulkActionsRef = ref(null)
+
+// ---------------------------------------------------------------------------
+// IOON: edición en línea
+// Mismos nombres de campo que CampaignDetail.vue.
+// ---------------------------------------------------------------------------
+const CAMPO_CAMPANA = 'custom_campaña'
+
+const EDITABLES = {
+  custom_intentos_de_contacto: { tipo: 'Int' },
+  'custom_canal_del_último_intento': {
+    tipo: 'Select',
+    opciones: ['Llamada', 'WhatsApp', 'Correo', 'Visita'],
+  },
+  'custom_resultado_del_último_intento': {
+    tipo: 'Select',
+    opciones: ['Contestó', 'No contestó', 'Buzón', 'Número equivocado', 'Volver a llamar'],
+  },
+  custom_comentarios_de_marketing: { tipo: 'Data' },
+  [CAMPO_CAMPANA]: { tipo: 'Select', campanas: true },
+}
+
+const campanas = createListResource({
+  doctype: 'CRM Campaign',
+  fields: ['name'],
+  orderBy: 'name asc',
+  pageLength: 500,
+  auto: true,
+})
+
+function esEditable(column) {
+  return Boolean(EDITABLES[column.key])
+}
+
+function tipoEditable(column) {
+  return EDITABLES[column.key]?.tipo || 'Data'
+}
+
+function opcionesEditables(column) {
+  const conf = EDITABLES[column.key]
+  if (!conf) return []
+  if (conf.campanas) return (campanas.data || []).map((c) => c.name)
+  // Si el campo trae sus opciones en la columna, se usan; si no, las de respaldo
+  if (column.type === 'Select' && column.options) return column.options
+  return conf.opciones || []
+}
+
+function textoEditable(valor, column) {
+  if (valor === null || valor === undefined || valor === '') return ''
+  if (tipoEditable(column) === 'Select' && !EDITABLES[column.key]?.campanas) return __(valor)
+  return String(valor)
+}
 
 defineExpose({
   customListActions: computed(
