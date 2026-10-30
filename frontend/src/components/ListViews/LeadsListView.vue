@@ -94,24 +94,18 @@
           </div>
         </template>
         <template #default="{ label }">
-          <!-- IOON: celdas editables. El clic no abre el lead. -->
-          <div
+          <!-- IOON: cualquier columna editable se edita en la celda -->
+          <EditableCell
             v-if="esEditable(column)"
-            class="w-full"
-            @click.stop.prevent
-            @mousedown.stop
-          >
-            <EditableCell
-              doctype="CRM Lead"
-              :name="row.name"
-              :fieldname="column.key"
-              :value="row[column.key] ?? ''"
-              :type="tipoEditable(column)"
-              :options="opcionesEditables(column)"
-              :display="textoEditable(row[column.key], column)"
-              @updated="({ value }) => (row[column.key] = value)"
-            />
-          </div>
+            doctype="CRM Lead"
+            :name="row.name"
+            :fieldname="column.key"
+            :value="valorCrudo(row[column.key])"
+            :type="tipoEditable(column)"
+            :options="opcionesEditables(column)"
+            :display="textoVisible(label, column)"
+            @updated="(cambio) => alActualizar(row, column, cambio)"
+          />
           <div
             v-else-if="
               [
@@ -281,10 +275,10 @@ import {
   createListResource,
 } from 'frappe-ui'
 import { sessionStore } from '@/stores/session'
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, shallowReactive } from 'vue'
 import { useRoute } from 'vue-router'
 
-defineProps({
+const props = defineProps({
   rows: { type: Array, required: true },
   columns: { type: Array, required: true },
   options: {
@@ -345,54 +339,127 @@ watch(pageLengthCount, (val, old_value) => {
 const listBulkActionsRef = ref(null)
 
 // ---------------------------------------------------------------------------
-// IOON: edición en línea
-// Mismos nombres de campo que CampaignDetail.vue.
+// IOON: edición en línea de cualquier columna editable
 // ---------------------------------------------------------------------------
-const CAMPO_CAMPANA = 'custom_campaña'
 
-const EDITABLES = {
-  custom_intentos_de_contacto: { tipo: 'Int' },
-  'custom_canal_del_último_intento': {
-    tipo: 'Select',
-    opciones: ['Llamada', 'WhatsApp', 'Correo', 'Visita'],
-  },
-  'custom_resultado_del_último_intento': {
-    tipo: 'Select',
-    opciones: ['Contestó', 'No contestó', 'Buzón', 'Número equivocado', 'Volver a llamar'],
-  },
-  custom_comentarios_de_marketing: { tipo: 'Data' },
-  [CAMPO_CAMPANA]: { tipo: 'Select', campanas: true },
+// Columnas que no se editan en la celda: siguen abriendo el lead al hacer clic.
+// lead_name es un nombre calculado (nombre + apellido); para cambiarlo,
+// muestra las columnas "Nombre" y "Apellido", que sí son editables.
+const NO_EDITABLES = new Set([
+  'name',
+  'lead_name',
+  'lead_owner',
+  '_assign',
+  '_liked_by',
+  'modified',
+  'creation',
+  'owner',
+  'modified_by',
+  'first_response_time',
+  'first_responded_on',
+  'response_by',
+  'sla',
+  'sla_status',
+  'sla_creation',
+  'communication_status',
+  'image',
+  'naming_series',
+  'converted',
+])
+
+// Tipo de campo de Frappe -> tipo de EditableCell
+const TIPOS = {
+  Data: 'Data',
+  'Small Text': 'Data',
+  Text: 'Data',
+  'Long Text': 'Data',
+  Phone: 'Data',
+  Int: 'Int',
+  Float: 'Float',
+  Currency: 'Currency',
+  Percent: 'Percent',
+  Date: 'Date',
+  Datetime: 'Datetime',
+  Select: 'Select',
+  Link: 'Select',
 }
 
-const campanas = createListResource({
-  doctype: 'CRM Campaign',
-  fields: ['name'],
-  orderBy: 'name asc',
-  pageLength: 500,
-  auto: true,
-})
+// Opciones de respaldo si la columna no trae las suyas
+const OPCIONES_RESPALDO = {
+  'custom_canal_del_último_intento': ['Llamada', 'WhatsApp', 'Correo', 'Visita'],
+  'custom_resultado_del_último_intento': [
+    'Contestó',
+    'No contestó',
+    'Buzón',
+    'Número equivocado',
+    'Volver a llamar',
+  ],
+}
 
 function esEditable(column) {
-  return Boolean(EDITABLES[column.key])
+  if (!column?.key || column.key.startsWith('_')) return false
+  if (NO_EDITABLES.has(column.key)) return false
+  return Boolean(TIPOS[column.type])
 }
 
 function tipoEditable(column) {
-  return EDITABLES[column.key]?.tipo || 'Data'
+  return TIPOS[column.type] || 'Data'
 }
+
+// Opciones de los campos Link (estado, fuente, industria, campaña...),
+// cargadas una vez por doctype
+const recursosLink = shallowReactive({})
+
+function asegurarOpciones(doctype) {
+  if (!doctype || recursosLink[doctype]) return
+  recursosLink[doctype] = createListResource({
+    doctype,
+    fields: ['name'],
+    orderBy: doctype.endsWith('Status') ? 'position asc' : 'name asc',
+    pageLength: 500,
+    auto: true,
+  })
+}
+
+watch(
+  () => props.columns,
+  (columnas) => {
+    for (const c of columnas || []) {
+      if (c.type === 'Link' && esEditable(c)) asegurarOpciones(c.options)
+    }
+  },
+  { immediate: true },
+)
 
 function opcionesEditables(column) {
-  const conf = EDITABLES[column.key]
-  if (!conf) return []
-  if (conf.campanas) return (campanas.data || []).map((c) => c.name)
-  // Si el campo trae sus opciones en la columna, se usan; si no, las de respaldo
-  if (column.type === 'Select' && column.options) return column.options
-  return conf.opciones || []
+  if (column.type === 'Link') {
+    return (recursosLink[column.options]?.data || []).map((d) => d.name)
+  }
+  if (column.type === 'Select') {
+    return column.options || OPCIONES_RESPALDO[column.key] || []
+  }
+  return []
 }
 
-function textoEditable(valor, column) {
-  if (valor === null || valor === undefined || valor === '') return ''
-  if (tipoEditable(column) === 'Select' && !EDITABLES[column.key]?.campanas) return __(valor)
-  return String(valor)
+// Algunas columnas llegan como objeto ({ label, color }); se edita el valor real
+function valorCrudo(v) {
+  if (v && typeof v === 'object') return v.value ?? v.name ?? v.label ?? ''
+  return v ?? ''
+}
+
+function textoVisible(label, column) {
+  if (label === null || label === undefined || label === '') return ''
+  return String(getLabel(label, column))
+}
+
+function alActualizar(row, column, { value }) {
+  // Si la columna se dibuja con datos calculados (por ejemplo, el color del
+  // estado), se recarga la lista; si no, basta con actualizar la fila.
+  if (row[column.key] && typeof row[column.key] === 'object') {
+    list.value?.reload?.()
+  } else {
+    row[column.key] = value
+  }
 }
 
 defineExpose({
